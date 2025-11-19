@@ -1,0 +1,21 @@
+session_id,start_time,user_agent,screen_resolution,language,referrer,ip,city,region,country,country_code,latitude,longitude,timezone
+session_1761945196255_tkphcgf6s,2025-10-31T21:13:16.255Z,"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",1280x720,pt-BR,,,,,,,,,
+session_1761945339854_4agjst254,2025-10-31T21:15:39.855Z,Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0,1280x720,pt-BR,,127.0.0.1,,,,,,,
+session_1761945934021_7hi1bxa28,2025-10-31T21:25:34.022Z,"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",1280x720,pt-BR,,127.0.0.1,,,,,,,
+session_1761946026261_778t3192a,2025-10-31T21:27:06.261Z,"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",1280x720,pt-BR,,127.0.0.1,,,,,,,
+session_1762078445225_f06rld5jj,2025-11-02T10:14:05.225Z,Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0,1280x720,pt-BR,,127.0.0.1,,,,,,,
+session_1762094484351_emuaivost,2025-11-02T14:41:24.351Z,"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",1280x720,pt-BR,,127.0.0.1,,,,,,,
+session_1762096551634_o0v2j7mb8,2025-11-02T15:15:51.635Z,Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0,1280x720,pt-BR,,127.0.0.1,,,,,,,
+session_1762446946194_8jxexg5ig,2025-11-06T16:35:46.194Z,Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0,1280x720,pt-BR,,,,,,,,,
+session_1762287955525_i9h3q9s25,2025-11-04T20:25:55.526Z,Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0,1280x720,pt-BR,,,,,,,,,
+session_1762105789882_wke7mv4by,2025-11-02T17:49:49.883Z,"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",1280x720,pt-BR,,127.0.0.1,,,,,,,
+session_1762449858897_iu8i2p8eo,2025-11-06T17:24:18.897Z,Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0,1280x720,pt-BR,,127.0.0.1,,,,,,,
+session_1762450063385_8xxoodau5,2025-11-06T17:27:43.389Z,"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",1280x720,pt-BR,,127.0.0.1,,,,,,,
+session_1762470029731_e4g0auqr5,2025-11-06T23:00:29.733Z,Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0,1280x720,pt-BR,,127.0.0.1,,,,,,,
+session_1762518752889_i24n8xxyt,2025-11-07T12:32:32.890Z,Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0,1280x720,pt-BR,,127.0.0.1,,,,,,,
+session_1763413724076_36wunofiw,2025-11-17T21:08:44.076Z,Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0,1280x720,pt-BR,,127.0.0.1,,,,,,,
+session_1763434818055_6i8uvrqzq,2025-11-18T03:00:18.055Z,Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0,1280x720,pt-BR,,127.0.0.1,,,,,,,
+session_1763562864402_sad656gok,2025-11-19T14:34:24.402Z,"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",1920x1080,en-US,,103.50.33.16,Buenos Aires,Buenos Aires F.D.,Argentina,AR,-34.61315,-58.37723,America/Argentina/Buenos_Aires
+session_1763581443469_v3ff8r3ee,2025-11-19T19:44:03.469Z,"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",1920x1080,en-US,,2602:fb54:7fe::,New York City,New York,United States,US,40.7143,-74.006,America/New_York
+session_1763583984925_a1lbhrenm,2025-11-19T20:26:24.925Z,"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",1920x1080,en-US,,2602:fb54:7fe::,New York City,New York,United States,US,40.7143,-74.006,America/New_York
+session_1763585442316_csp8fscya,2025-11-19T20:50:42.316Z,"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",1920x1080,en-US,,2602:fb54:7fe::,New York City,New York,United States,US,40.7143,-74.006,America/New_York
