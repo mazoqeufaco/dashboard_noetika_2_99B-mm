@@ -11,6 +11,7 @@ import requests
 import json
 import os
 from dotenv import load_dotenv, dotenv_values
+from ipaddress import ip_address
 
 # Carrega variáveis de ambiente do arquivo .env (se existir)
 load_dotenv()
@@ -104,6 +105,29 @@ def init_csv_files():
 
 init_csv_files()
 
+
+def normalize_ip(ip_value: str) -> str:
+    if not ip_value:
+        return ''
+    ip_str = str(ip_value).strip()
+    if ip_str.lower() == '::1':
+        return '127.0.0.1'
+    if ip_str.startswith('::ffff:'):
+        ip_str = ip_str[7:]
+    return ip_str
+
+
+def is_local_ip(ip_value: str) -> bool:
+    ip_str = normalize_ip(ip_value)
+    if not ip_str or ip_str.lower() == 'localhost':
+        return True
+    try:
+        ip_obj = ip_address(ip_str)
+        return ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local
+    except ValueError:
+        return True
+
+
 @app.route('/')
 def index():
     """Serve the main HTML file"""
@@ -119,9 +143,9 @@ def get_location():
     """Get user location from IP using backend (avoids CORS issues)"""
     try:
         # Get client IP
-        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-        if client_ip and ',' in client_ip:
-            client_ip = client_ip.split(',')[0].strip()
+        client_ip_header = request.headers.get('X-Forwarded-For', request.remote_addr)
+        client_ip = client_ip_header.split(',')[0].strip() if client_ip_header else request.remote_addr
+        client_ip = normalize_ip(client_ip)
         
         # If localhost, try to get public IP from API (without specifying IP)
         if client_ip in ['127.0.0.1', '::1', 'localhost']:
@@ -156,7 +180,7 @@ def get_location():
             }), 200
         
         # If we have a real IP, query API with that IP
-        if client_ip:
+        if client_ip and not is_local_ip(client_ip):
             try:
                 response = requests.get(f'https://ipapi.co/{client_ip}/json/', timeout=5)
                 if response.status_code == 200:
@@ -199,24 +223,35 @@ def track_event():
         session = data.get('session', {})
         event = data.get('event', {})
         
-        # Try to get IP from request if not in session
-        if not session.get('ip'):
-            client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-            if client_ip and ',' in client_ip:
-                client_ip = client_ip.split(',')[0].strip()
-            if client_ip and client_ip not in ['127.0.0.1', '::1', 'localhost']:
+        # Normalize session IP
+        session_ip = normalize_ip(session.get('ip', ''))
+        if session_ip:
+            session['ip'] = session_ip
+
+        # Try to get IP from request if not present or local
+        if not session_ip or is_local_ip(session_ip):
+            client_ip_header = request.headers.get('X-Forwarded-For', request.remote_addr)
+            client_ip = client_ip_header.split(',')[0].strip() if client_ip_header else request.remote_addr
+            client_ip = normalize_ip(client_ip)
+            if client_ip and not is_local_ip(client_ip):
                 session['ip'] = client_ip
+                session_ip = client_ip
         
         # Save session info (update if exists or if location was updated)
         session_id = session.get('sessionId')
         if session_id:
             location = session.get('location', {})
-            session_ip = session.get('ip', '')
-            has_location_data = session_ip or (location and not location.get('error'))
+            session_ip = normalize_ip(session.get('ip', ''))
+            session['ip'] = session_ip
+            has_location_data = (
+                (session_ip and not is_local_ip(session_ip)) or
+                (location and not location.get('error') and any(location.get(key) for key in ('city', 'region', 'country')))
+            )
             
             # Check if session already exists
             session_exists = False
             session_has_location = False
+            existing_has_real_ip = False
             
             if SESSIONS_CSV.exists():
                 with open(SESSIONS_CSV, 'r', encoding='utf-8') as f:
@@ -226,7 +261,9 @@ def track_event():
                         if row['session_id'] == session_id:
                             session_exists = True
                             # Check if session already has location data
-                            if row.get('ip') or row.get('city'):
+                            existing_ip = normalize_ip(row.get('ip', ''))
+                            existing_has_real_ip = bool(existing_ip and not is_local_ip(existing_ip))
+                            if existing_has_real_ip or row.get('city') or row.get('region') or row.get('country'):
                                 session_has_location = True
                             break
             
@@ -252,7 +289,11 @@ def track_event():
                         str(location.get('longitude', '')) if location else '',
                         location.get('timezone', '') if location else ''
                     ])
-            elif has_location_data and not session_has_location:
+            elif has_location_data and (
+                not session_has_location or (
+                    session_ip and not is_local_ip(session_ip) and not existing_has_real_ip
+                )
+            ):
                 # Update existing session with new location data
                 if session_exists:
                     # Update existing session - read all rows, update, rewrite
@@ -262,7 +303,11 @@ def track_event():
                         for row in reader:
                             if row['session_id'] == session_id:
                                 # Update this row with new location data
-                                row['ip'] = session_ip if session_ip else row.get('ip', '')
+                                incoming_ip_is_real = session_ip and not is_local_ip(session_ip)
+                                existing_ip = normalize_ip(row.get('ip', ''))
+                                existing_ip_is_real = existing_ip and not is_local_ip(existing_ip)
+                                if incoming_ip_is_real or not existing_ip_is_real:
+                                    row['ip'] = session_ip if session_ip else row.get('ip', '')
                                 row['city'] = location.get('city', '') if location else row.get('city', '')
                                 row['region'] = location.get('region', '') if location else row.get('region', '')
                                 row['country'] = location.get('country', '') if location else row.get('country', '')
@@ -402,7 +447,8 @@ def generate_report():
                 reader = csv.DictReader(f)
                 for row in reader:
                     if row['session_id'] == session_id:
-                        user_ip = row.get('ip', 'N/A')
+                        stored_ip = normalize_ip(row.get('ip', ''))
+                        user_ip = stored_ip if stored_ip and not is_local_ip(stored_ip) else 'N/A'
                         user_city = row.get('city', 'N/A')
                         break
         
@@ -693,6 +739,8 @@ def send_email_with_pdf(pdf_data, date_str, time_str, report_hash):
         smtp_port = int(os.getenv('SMTP_PORT', '587'))
         email_from = os.getenv('EMAIL_FROM', 'noetikaai@gmail.com')
         email_password = os.getenv('EMAIL_PASSWORD', '')
+        if email_password:
+            email_password = email_password.strip().replace(' ', '')
         email_to_str = os.getenv('EMAIL_TO', 'noetikaai@gmail.com, gabriel.silva@ufabc.edu.br')
         
         # Parse multiple recipients (comma or semicolon separated)

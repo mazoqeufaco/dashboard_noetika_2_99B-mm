@@ -20,34 +20,105 @@ function generateSessionId() {
     return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 }
 
+function normalizeIp(ip) {
+    if (!ip) return '';
+    let value = String(ip).trim();
+    if (value.toLowerCase() === '::1') return '127.0.0.1';
+    if (value.startsWith('::ffff:')) value = value.substring(7);
+    return value;
+}
+
+function isLocalIp(ip) {
+    const value = normalizeIp(ip).toLowerCase();
+    if (!value) return true;
+    if (value === '127.0.0.1' || value === 'localhost') return true;
+    if (value.startsWith('10.')) return true;
+    if (value.startsWith('192.168.')) return true;
+    if (value.startsWith('169.254.')) return true;
+    if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(value)) return true;
+    if (value.startsWith('fc') || value.startsWith('fd')) return true; // IPv6 ULA
+    if (value.startsWith('fe80')) return true; // IPv6 link-local
+    return false;
+}
+
+function assignLocation(ip, rawData = {}) {
+    const normalizedIp = normalizeIp(ip);
+    trackingSession.ip = normalizedIp;
+    const data = rawData || {};
+    const location = {
+        city: data.city || data.city_name || '',
+        region: data.region || data.region_name || data.state || '',
+        country: data.country || data.country_name || '',
+        country_code: data.country_code || data.countryCode || '',
+        latitude: data.latitude ?? data.lat ?? '',
+        longitude: data.longitude ?? data.lon ?? '',
+        timezone: data.timezone || data.time_zone || ''
+    };
+    Object.keys(location).forEach(key => {
+        const value = location[key];
+        location[key] = value === null || value === undefined ? '' : String(value);
+    });
+    trackingSession.location = location;
+}
+
 // Get user's IP and location (via backend to avoid CORS issues)
 async function getUserLocation() {
     try {
-        // First try to get location via backend (avoids CORS)
-        const response = await fetch('/api/get-location');
-        if (response.ok) {
-            const data = await response.json();
-            if (data.ip) {
-                trackingSession.ip = data.ip;
-                trackingSession.location = {
-                    city: data.city || '',
-                    region: data.region || '',
-                    country: data.country || '',
-                    country_code: data.country_code || '',
-                    latitude: data.latitude || '',
-                    longitude: data.longitude || '',
-                    timezone: data.timezone || ''
-                };
-                
-                console.log('✅ User location tracked via backend:', trackingSession.location);
-                
-                // Update session on server with location data
-                await updateSessionWithLocation();
-                
-                // Save to localStorage
-                saveTrackingData();
-                return;
+        let locationResolved = false;
+        let backendData = null;
+        try {
+            const response = await fetch('/api/get-location');
+            if (response.ok) {
+                backendData = await response.json();
             }
+        } catch (backendError) {
+            console.warn('⚠️ Backend location lookup falhou:', backendError.message);
+        }
+
+        if (backendData && backendData.ip) {
+            const backendIp = normalizeIp(backendData.ip);
+            if (!isLocalIp(backendIp)) {
+                assignLocation(backendIp, backendData);
+                locationResolved = true;
+                console.log('✅ User location tracked via backend:', trackingSession.location);
+            } else {
+                console.warn('⚠️ Backend retornou IP local/reservado, tentando serviço externo.');
+            }
+        }
+        
+        if (!locationResolved) {
+            try {
+                const ipifyResponse = await fetch('https://api.ipify.org?format=json');
+                if (ipifyResponse.ok) {
+                    const ipifyData = await ipifyResponse.json();
+                    const publicIp = normalizeIp(ipifyData.ip);
+                    if (publicIp && !isLocalIp(publicIp)) {
+                        let locationData = null;
+                        try {
+                            const geoResponse = await fetch(`https://ipapi.co/${publicIp}/json/`);
+                            if (geoResponse.ok) {
+                                const geoData = await geoResponse.json();
+                                if (!geoData.error) {
+                                    locationData = geoData;
+                                }
+                            }
+                        } catch (geoError) {
+                            console.warn('⚠️ Falha ao obter detalhes geográficos externos:', geoError.message);
+                        }
+                        assignLocation(publicIp, locationData || {});
+                        locationResolved = true;
+                        console.log('✅ User location rastreada via serviço externo:', trackingSession.location);
+                    }
+                }
+            } catch (ipifyError) {
+                console.warn('⚠️ Serviço externo de IP falhou:', ipifyError.message);
+            }
+        }
+
+        if (locationResolved) {
+            await updateSessionWithLocation();
+            saveTrackingData();
+            return;
         }
         
         // Fallback: try direct API (may fail due to CORS, but worth trying)
@@ -56,16 +127,7 @@ async function getUserLocation() {
             if (directResponse.ok) {
                 const data = await directResponse.json();
                 if (data.ip && !data.error) {
-                    trackingSession.ip = data.ip;
-                    trackingSession.location = {
-                        city: data.city || '',
-                        region: data.region || '',
-                        country: data.country_name || '',
-                        country_code: data.country_code || '',
-                        latitude: data.latitude || '',
-                        longitude: data.longitude || '',
-                        timezone: data.timezone || ''
-                    };
+                    assignLocation(data.ip, data);
                     
                     console.log('✅ User location tracked via direct API:', trackingSession.location);
                     await updateSessionWithLocation();

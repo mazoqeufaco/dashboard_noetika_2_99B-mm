@@ -44,16 +44,30 @@ function proxyToBackend(req, res) {
   });
   
   req.on('end', () => {
+    const clientIpRaw = req.socket?.remoteAddress || '';
+    const clientIp = clientIpRaw
+      ? clientIpRaw.replace(/^::ffff:/, '').replace('::1', '127.0.0.1')
+      : '';
+    const existingForwarded = req.headers['x-forwarded-for'];
+    const forwardedFor = clientIp
+      ? (existingForwarded ? `${existingForwarded}, ${clientIp}` : clientIp)
+      : existingForwarded;
+
+    const proxyHeaders = {
+      ...req.headers,
+      host: `${BACKEND_HOST}:${BACKEND_PORT}`
+    };
+    if (forwardedFor) {
+      proxyHeaders['x-forwarded-for'] = forwardedFor;
+    }
+
     const options = {
       hostname: BACKEND_HOST,
       port: BACKEND_PORT,
       path: req.url,
       method: req.method,
       family: 4, // Força IPv4 explicitamente
-      headers: {
-        ...req.headers,
-        host: `${BACKEND_HOST}:${BACKEND_PORT}`
-      }
+      headers: proxyHeaders
     };
 
     const proxyReq = http.request(options, (proxyRes) => {
