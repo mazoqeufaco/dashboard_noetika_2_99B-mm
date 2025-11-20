@@ -244,6 +244,7 @@ export async function initEntrada(opts={}){
   const Vright={x:x+v.right.x,y:y+v.right.y};
 
   let rgb=[1/3,1/3,1/3]; let dragging=false;
+  let activePointerId=null;
 
   const drawFromRGB=()=>{ const [wt,wl,wr]=rgbToBary(rgb,cfg.vertexToChannel);
     const px=wt*Vtop.x+wl*Vleft.x+wr*Vright.x, py=wt*Vtop.y+wl*Vleft.y+wr*Vright.y;
@@ -265,6 +266,61 @@ export async function initEntrada(opts={}){
     setPerc(r,g,b);
   }
 
+  function setupStepper(inputEl, focusKey, labelName){
+    if(!inputEl) return;
+    if(inputEl.dataset.stepperReady==='1') return;
+    const label = inputEl.closest('label');
+    if(!label) return;
+
+    const container=document.createElement('span');
+    container.className='stepper';
+    const makeBtn=(delta)=>{
+      const btn=document.createElement('button');
+      btn.type='button';
+      btn.className=`stepper-btn ${delta<0?'stepper-btn-dec':'stepper-btn-inc'}`;
+      btn.textContent=delta<0?'−':'+';
+      const actionLabel=delta<0?'Diminuir':'Aumentar';
+      btn.setAttribute('aria-label',`${actionLabel} ${labelName}`);
+      btn.addEventListener('click',evt=>{
+        evt.preventDefault();
+        const step=parseFloat(inputEl.step)||0.5;
+        const current=parseFloat(inputEl.value)||0;
+        const next=clamp01p(current + delta*step);
+        rebalance(focusKey,next);
+      });
+      return btn;
+    };
+
+    const decBtn=makeBtn(-1);
+    const incBtn=makeBtn(1);
+    const unit=document.createElement('span');
+    unit.className='stepper-unit';
+    unit.textContent='%';
+
+    container.append(decBtn,inputEl,unit,incBtn);
+
+    const swatch=label.querySelector('.swatch');
+    if(swatch){
+      label.insertBefore(container,swatch);
+    }else{
+      label.appendChild(container);
+    }
+
+    // Remove texto residual de porcentagem após mover o input
+    let sibling=container.nextSibling;
+    while(sibling && sibling.nodeType===Node.TEXT_NODE){
+      const next=sibling.nextSibling;
+      sibling.parentNode.removeChild(sibling);
+      sibling=next;
+    }
+
+    inputEl.dataset.stepperReady='1';
+  }
+
+  setupStepper(rEl,'R','Custo');
+  setupStepper(gEl,'G','Qualidade');
+  setupStepper(bEl,'B','Prazo');
+
   ['input','change'].forEach(evt=>{
     rEl.addEventListener(evt,()=>rebalance('R',parseFloat(rEl.value)||0));
     gEl.addEventListener(evt,()=>rebalance('G',parseFloat(gEl.value)||0));
@@ -278,19 +334,87 @@ export async function initEntrada(opts={}){
     setPerc(r*100,g*100,b*100);
     return true;
   };
-  canvas.addEventListener('mousedown',e=>{
-    const r=canvas.getBoundingClientRect();
-    dragging=handlePoint(e.clientX-r.left,e.clientY-r.top);
-  });
-  canvas.addEventListener('mousemove',e=>{
+
+  const getRelativePoint=(evt)=>{
+    const rect=canvas.getBoundingClientRect();
+    if(evt.touches && evt.touches.length){
+      return {x:evt.touches[0].clientX-rect.left,y:evt.touches[0].clientY-rect.top};
+    }
+    if(evt.changedTouches && evt.changedTouches.length){
+      return {x:evt.changedTouches[0].clientX-rect.left,y:evt.changedTouches[0].clientY-rect.top};
+    }
+    if(evt.clientX!=null && evt.clientY!=null){
+      return {x:evt.clientX-rect.left,y:evt.clientY-rect.top};
+    }
+    return null;
+  };
+
+  const beginInteraction=evt=>{
+    const pos=getRelativePoint(evt);
+    if(!pos) return;
+    dragging=handlePoint(pos.x,pos.y);
+    if(dragging && typeof evt.pointerId==='number'){
+      activePointerId=evt.pointerId;
+      if(canvas.setPointerCapture){
+        try{ canvas.setPointerCapture(activePointerId); }catch(_){}
+      }
+    }
+  };
+
+  const moveInteraction=evt=>{
     if(!dragging) return;
-    const r=canvas.getBoundingClientRect();
-    handlePoint(e.clientX-r.left,e.clientY-r.top);
-  });
-  window.addEventListener('mouseup',()=>{ dragging=false; });
+    const pos=getRelativePoint(evt);
+    if(!pos) return;
+    handlePoint(pos.x,pos.y);
+  };
+
+  const endInteraction=evt=>{
+    dragging=false;
+    if(typeof evt?.pointerId==='number' && canvas.releasePointerCapture){
+      try{ canvas.releasePointerCapture(evt.pointerId); }catch(_){}
+    }else if(activePointerId!=null && canvas.releasePointerCapture){
+      try{ canvas.releasePointerCapture(activePointerId); }catch(_){}
+    }
+    activePointerId=null;
+  };
+
+  if(window.PointerEvent){
+    const pointerOpts={passive:false};
+    canvas.addEventListener('pointerdown',evt=>{
+      if(evt.pointerType==='touch') evt.preventDefault();
+      beginInteraction(evt);
+    },pointerOpts);
+    canvas.addEventListener('pointermove',evt=>{
+      if(evt.pointerType==='touch') evt.preventDefault();
+      moveInteraction(evt);
+    },pointerOpts);
+    const pointerEnd=evt=>{
+      if(evt.pointerType==='touch') evt.preventDefault();
+      endInteraction(evt);
+    };
+    canvas.addEventListener('pointerup',pointerEnd);
+    canvas.addEventListener('pointercancel',pointerEnd);
+    canvas.addEventListener('pointerleave',pointerEnd);
+  }else{
+    canvas.addEventListener('mousedown',evt=>{ beginInteraction(evt); });
+    canvas.addEventListener('mousemove',evt=>{ moveInteraction(evt); });
+    window.addEventListener('mouseup',endInteraction);
+
+    canvas.addEventListener('touchstart',evt=>{
+      evt.preventDefault();
+      beginInteraction(evt);
+    },{passive:false});
+    canvas.addEventListener('touchmove',evt=>{
+      evt.preventDefault();
+      moveInteraction(evt);
+    },{passive:false});
+    window.addEventListener('touchend',endInteraction);
+    window.addEventListener('touchcancel',endInteraction);
+  }
+
   canvas.addEventListener('click',e=>{
-    const r=canvas.getBoundingClientRect();
-    handlePoint(e.clientX-r.left,e.clientY-r.top);
+    const pos=getRelativePoint(e);
+    if(pos) handlePoint(pos.x,pos.y);
   });
 
   let onConfirm=null;

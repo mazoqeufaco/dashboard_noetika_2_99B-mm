@@ -1,0 +1,8 @@
+VERCEL_GIT_COMMIT_AUTHOR_LOGIN=mazoqeufaco
+# Configurações de Email
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+EMAIL_FROM=noetikaai@gmail.com
+EMAIL_PASSWORD=svsc zsaj sput kjsg
+EMAIL_TO=noetikaai@gmail.com, gabriel.silva@ufabc.edu.br
+

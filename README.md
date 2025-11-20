@@ -4,7 +4,7 @@ Dashboard interativo para seleção de soluções baseado em critérios de Custo
 
 ## Como usar
 
-1. Acesse a  página principal
+1. Acesse a página principal
 2. Clique no triângulo colorido para definir suas prioridades
 3. Ajuste os valores nos campos percentuais se necessário
 4. Clique em "Confirma" para ver o ranking das soluções
@@ -21,4 +21,3 @@ Dashboard interativo para seleção de soluções baseado em critérios de Custo
 ## Deploy no Vercel
 
 Este projeto está configurado para deploy automático no Vercel como aplicação estática.
-

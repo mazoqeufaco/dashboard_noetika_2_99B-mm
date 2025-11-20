@@ -7,10 +7,31 @@ import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from dotenv import load_dotenv
+from dotenv import load_dotenv, dotenv_values
 
 # Carrega variáveis de ambiente
 load_dotenv()
+
+
+def load_additional_env_from_file(path: str = 'env') -> None:
+    """Carrega variáveis extras de um arquivo env simples sem sobrescrever as existentes."""
+    try:
+        if not os.path.exists(path):
+            return
+        extra_values = dotenv_values(path)
+        if not extra_values:
+            return
+        for key, value in extra_values.items():
+            if not key or value is None:
+                continue
+            current_value = os.environ.get(key)
+            if current_value is None or current_value == '':
+                os.environ[key] = value
+    except Exception as env_error:
+        print(f"⚠️ Não foi possível carregar variáveis adicionais de '{path}': {env_error}")
+
+
+load_additional_env_from_file()
 
 # Configurações
 smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')

@@ -10,10 +10,31 @@ import csv
 import requests
 import json
 import os
-from dotenv import load_dotenv
+from dotenv import load_dotenv, dotenv_values
 
 # Carrega variáveis de ambiente do arquivo .env (se existir)
 load_dotenv()
+
+
+def load_additional_env_from_file(path: str = 'env') -> None:
+    """Load extra environment variables from a plain env file without overriding existing ones."""
+    try:
+        if not os.path.exists(path):
+            return
+        extra_values = dotenv_values(path)
+        if not extra_values:
+            return
+        for key, value in extra_values.items():
+            if not key or value is None:
+                continue
+            current_value = os.environ.get(key)
+            if current_value is None or current_value == '':
+                os.environ[key] = value
+    except Exception as env_error:
+        print(f"⚠️ Não foi possível carregar variáveis adicionais de '{path}': {env_error}")
+
+
+load_additional_env_from_file()
 import hashlib
 import base64
 import smtplib
