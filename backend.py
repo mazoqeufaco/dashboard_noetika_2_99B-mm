@@ -53,7 +53,6 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
 from reportlab.pdfgen import canvas
-from reportlab.lib.utils import ImageReader
 from threading import Thread
 
 app = Flask(__name__)
@@ -561,7 +560,8 @@ def generate_report():
                 
                 # Add image to PDF - ajusta tamanho para caber na mesma página
                 img_buffer = BytesIO(image_data)
-                reportlab_img = Image(ImageReader(img_buffer), width=6*inch, height=2.3*inch)
+                img_buffer.seek(0)
+                reportlab_img = Image(img_buffer, width=6*inch, height=2.3*inch)
                 elements.append(reportlab_img)
             except Exception as e:
                 print(f"Erro ao adicionar gráfico ao PDF: {e}")
