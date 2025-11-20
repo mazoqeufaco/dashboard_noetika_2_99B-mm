@@ -341,6 +341,8 @@ function showSolutionModal(solutionName, coordStr){
   modal.showModal();
 }
 
+window.showSolutionModal = showSolutionModal;
+
 function setupSolutionLinks(){
   // Intercepta todos os cliques em links de solução
   document.addEventListener('click', (e) => {
@@ -1155,6 +1157,140 @@ const TREE_STRUCTURE = {
   }
 };
 
+const LEAF_CATEGORIES = {
+  thirdParty: {
+    id: 'third-party',
+    title: 'Dados com terceiros',
+    description: 'confia? essas empresas terão dados da SEG',
+    color: '#ff4444',
+    stroke: '#ffb4b4'
+  },
+  remote: {
+    id: 'remote-access',
+    title: 'Acesso remoto',
+    description: 'plataformas com login a partir de qualquer lugar, e em qualquer horário',
+    color: '#4299e1',
+    stroke: '#bcdcff'
+  },
+  terminals: {
+    id: 'new-terminals',
+    title: 'Infra local',
+    description: 'pode demandar instalação de novos terminais',
+    color: '#ff8c00',
+    stroke: '#ffd1a1'
+  },
+  fallback: {
+    id: 'custom',
+    title: 'Soluções personalizadas',
+    description: 'combinações sob medida conforme necessidade da SEG',
+    color: '#38bdf8',
+    stroke: '#bae6fd'
+  }
+};
+
+function categorizeLeaf(leaf){
+  if(!leaf || !leaf.coord) return LEAF_CATEGORIES.fallback;
+  const pri = leaf.coord.pri;
+  const sec = leaf.coord.sec;
+  const ter = (leaf.coord.ter || '').toUpperCase();
+
+  if(pri === 'I') return LEAF_CATEGORIES.thirdParty;
+  if(pri === 'II') return LEAF_CATEGORIES.remote;
+
+  if(pri === 'III'){
+    if(ter === 'B' || (sec === 2 && (ter === 'A' || ter === 'B'))){
+      return LEAF_CATEGORIES.terminals;
+    }
+    return LEAF_CATEGORIES.remote;
+  }
+
+  return LEAF_CATEGORIES.fallback;
+}
+
+function createLeafMeta(leaf, decimals){
+  const precision = Number.isInteger(decimals) ? decimals : 2;
+  const parts = [];
+  if(Number.isFinite(leaf.nota)){
+    parts.push(`Nota=${leaf.nota.toFixed(precision)}`);
+  }
+  if(Number.isFinite(leaf.margemErro)){
+    parts.push(`σ=${leaf.margemErro.toFixed(precision)}`);
+  }
+  return parts.length ? parts.join(' • ') : '';
+}
+
+function buildTreeHierarchy(treeMap, decimals){
+  const categoriesUsed = new Map();
+  const rootLabel = TREE_STRUCTURE.root?.label || 'Seu problema';
+  const rootNode = {
+    id: 'root',
+    title: rootLabel.charAt(0).toUpperCase() + rootLabel.slice(1),
+    subtitle: TREE_STRUCTURE.root?.subtitle || 'clique nas folhas coloridas para conhecer as soluções',
+    type: 'root',
+    meta: '',
+    children: []
+  };
+
+  const primaries = [...treeMap.keys()].sort((a,b)=> romanToInt(a) - romanToInt(b));
+  for(const pri of primaries){
+    const branchMap = treeMap.get(pri);
+    if(!branchMap) continue;
+
+    const branchInfo = TREE_STRUCTURE.branches?.[pri];
+    const branchNode = {
+      id: `branch-${pri}`,
+      title: branchInfo?.label || `Tronco ${pri}`,
+      subtitle: pri,
+      type: 'branch',
+      meta: '',
+      children: []
+    };
+
+    const secKeys = [...branchMap.keys()].sort((a,b)=> a-b);
+    let branchCount = 0;
+    for(const sec of secKeys){
+      const leaves = branchMap.get(sec);
+      if(!leaves?.length) continue;
+
+      const secInfo = branchInfo?.children?.[String(sec)];
+      const secNode = {
+        id: `branch-${pri}-${sec}`,
+        title: secInfo?.label || `${pri}.${sec}`,
+        subtitle: `${pri}.${sec}`,
+        type: 'subbranch',
+        meta: leaves.length === 1 ? '1 solução' : `${leaves.length} soluções`,
+        children: []
+      };
+
+      leaves.forEach(leaf=>{
+        const category = categorizeLeaf(leaf);
+        categoriesUsed.set(category.id, category);
+
+        const leafNode = {
+          id: `leaf-${leaf.coordStr || leaf.nome}`,
+          title: leaf.nome,
+          subtitle: leaf.coordStr || leaf.coordOriginal || '',
+          type: 'leaf',
+          meta: createLeafMeta(leaf, decimals),
+          category,
+          raw: leaf
+        };
+        secNode.children.push(leafNode);
+      });
+
+      branchCount += secNode.children.length;
+      branchNode.children.push(secNode);
+    }
+
+    if(branchCount){
+      branchNode.meta = branchCount === 1 ? '1 solução' : `${branchCount} soluções`;
+      rootNode.children.push(branchNode);
+    }
+  }
+
+  return { hierarchy: rootNode, categoriesUsed };
+}
+
 // Função para comparar coordenadas
 function compareCoords(a,b){
   if(a.pri!==b.pri) return romanToInt(a.pri)-romanToInt(b.pri);
@@ -1190,73 +1326,20 @@ function buildTree(items){
 function renderTree(tree, decimals){
   const host = document.getElementById('tree');
   if(!host){ return; }
+  host.innerHTML = '';
+
   if(!tree || tree.size === 0){ 
     host.innerHTML='<em>Nenhuma solução mapeada.</em>'; 
     return; 
   }
 
-  // Renderização HTML simples (como na pasta 99D)
-  const primKeys = [...tree.keys()].sort((a,b)=> romanToInt(a)-romanToInt(b));
-  const html = primKeys.map(pri => {
-    const secs = tree.get(pri);
-    const secKeys = [...secs.keys()].sort((a,b)=> a-b);
-    const secHtml = secKeys.map(sec => {
-      const leaves = secs.get(sec);
-      const leafHtml = leaves.map(l => {
-        const coordStr = l.coordStr || '';
-        const nota = l.nota ? l.nota.toFixed(decimals || 2) : 'N/A';
-        const margemErro = l.margemErro ? l.margemErro.toFixed(decimals || 2) : 'N/A';
-        
-        // Aplica cores baseadas na coordenada
-        let colorClass = '';
-        let colorStyle = '';
-        if(coordStr) {
-          if(/^I\.(1|2|3)$/.test(coordStr)) {
-            colorStyle = 'color: #ff4444;';
-          } else if(/^II\.(2|2\.a|3|2\.b)$/.test(coordStr) || coordStr === 'II.2' || coordStr === 'II.3') {
-            colorStyle = 'color: #4299e1;';
-          } else if(/^III\.1a$/.test(coordStr) || coordStr === 'III.1a') {
-            colorStyle = 'color: #4299e1;';
-          } else if(/^III\.1\.b$/.test(coordStr) || coordStr === 'III.1.b') {
-            colorStyle = 'color: #ff8c00;';
-          } else if(/^III\.2\.(a|b)$/.test(coordStr)) {
-            colorStyle = 'color: #ff8c00;';
-          } else if(/^III\.2\.c$/.test(coordStr)) {
-            colorStyle = 'color: #4299e1;';
-          }
-        }
-        
-        return `<li><span class="leaf" style="${colorStyle}"><a href="#" onclick="event.preventDefault(); showSolutionModal('${l.nome.replace(/'/g, "\\'")}', '${coordStr}'); return false;">${l.nome}</a> ${coordStr ? `(${coordStr})` : ''}</span> <span class="score">(Nota=${nota}, σ=${margemErro})</span></li>`;
-      }).join('');
-      return `<li><span class="branch">${pri}.${sec}</span><ul>${leafHtml}</ul></li>`;
-    }).join('');
-    return `<li><span class="branch">${pri}</span><ul>${secHtml}</ul></li>`;
-  }).join('');
+  const { hierarchy, categoriesUsed } = buildTreeHierarchy(tree, decimals);
 
-  host.innerHTML = `<ul>${html}</ul>`;
-  
-  // Adicionar legenda
-  const legend = document.createElement('div');
-  legend.className = 'tree-legend';
-  legend.style.cssText = 'margin-top: 20px; padding: 15px; background: #1a1a1a; border-radius: 8px; border: 1px solid #333; color: #cfcfcf; font-size: 13px;';
-  
-  legend.innerHTML = `
-    <div style="margin-bottom: 10px; font-weight: bold;">Legenda:</div>
-    <div style="display: flex; align-items: center; margin-bottom: 8px;">
-      <div style="width: 20px; height: 20px; background: #ff4444; border-radius: 3px; margin-right: 10px; border: 1px solid #555;"></div>
-      <span>confia? essas empresas terão dados da SEG</span>
-    </div>
-    <div style="display: flex; align-items: center; margin-bottom: 8px;">
-      <div style="width: 20px; height: 20px; background: #4299e1; border-radius: 3px; margin-right: 10px; border: 1px solid #555;"></div>
-      <span>plataformas com login a partir de qualquer lugar, e em qualquer horário</span>
-    </div>
-    <div style="display: flex; align-items: center; margin-bottom: 8px;">
-      <div style="width: 20px; height: 20px; background: #ff8c00; border-radius: 3px; margin-right: 10px; border: 1px solid #555;"></div>
-      <span>pode demandar instalação de novos terminais</span>
-    </div>
-  `;
-  
-  host.appendChild(legend);
+  if(typeof window.renderMindmap === 'function'){
+    window.renderMindmap('#tree', hierarchy, Array.from(categoriesUsed.values()), decimals);
+  } else {
+    host.innerHTML = '<em>Visualização não disponível. Certifique-se de carregar o script do mind map.</em>';
+  }
 }
 
 // -------- toggle helpers --------

@@ -235,13 +235,34 @@ window.addEventListener('beforeunload', () => {
     });
     
     // Try to send final data synchronously
+    const payload = {
+        session: trackingSession,
+        event: { type: 'session_end', timestamp: new Date().toISOString() }
+    };
+
     try {
-        navigator.sendBeacon('/api/track', JSON.stringify({ 
-            session: trackingSession, 
-            event: { type: 'session_end', timestamp: new Date().toISOString() }
-        }));
+        const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+        const sent = navigator.sendBeacon('/api/track', blob);
+
+        if (!sent) {
+            fetch('/api/track', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                keepalive: true
+            }).catch(() => {});
+        }
     } catch (e) {
-        // Ignore errors on page unload
+        try {
+            fetch('/api/track', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                keepalive: true
+            }).catch(() => {});
+        } catch (_) {
+            // Ignore errors on page unload
+        }
     }
 });
 
