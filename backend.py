@@ -52,7 +52,8 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
 from reportlab.pdfgen import canvas
-from PIL import Image as PILImage
+from reportlab.lib.utils import ImageReader
+from threading import Thread
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for frontend requests
@@ -511,22 +512,10 @@ def generate_report():
                 
                 # Decode base64 image
                 image_data = base64.b64decode(graph_image_base64)
-                img_buffer = BytesIO(image_data)
-                img = PILImage.open(img_buffer)
-                
-                # Convert to RGB if necessary
-                if img.mode == 'RGBA':
-                    rgb_img = PILImage.new('RGB', img.size, (255, 255, 255))
-                    rgb_img.paste(img, mask=img.split()[3])
-                    img = rgb_img
-                
-                # Save to buffer
-                img_buffer = BytesIO()
-                img.save(img_buffer, format='PNG')
-                img_buffer.seek(0)
                 
                 # Add image to PDF - ajusta tamanho para caber na mesma página
-                reportlab_img = Image(img_buffer, width=6*inch, height=2.3*inch)
+                img_buffer = BytesIO(image_data)
+                reportlab_img = Image(ImageReader(img_buffer), width=6*inch, height=2.3*inch)
                 elements.append(reportlab_img)
             except Exception as e:
                 print(f"Erro ao adicionar gráfico ao PDF: {e}")
@@ -677,14 +666,7 @@ def generate_report():
             ])
         
         # Send email with PDF
-        try:
-            send_email_with_pdf(pdf_data, date_str, time_str, report_hash)
-            print(f"✅ Email enviado com sucesso!")
-        except Exception as e:
-            print(f"❌ Erro ao enviar email: {e}")
-            import traceback
-            traceback.print_exc()
-            # Continue even if email fails - PDF ainda será retornado
+        send_email_with_pdf_async(pdf_data, date_str, time_str, report_hash)
         
         # Return PDF
         from flask import Response
@@ -780,6 +762,18 @@ Este email contém o relatório PDF em anexo.
         import traceback
         traceback.print_exc()
         raise
+
+def send_email_with_pdf_async(pdf_data, date_str, time_str, report_hash):
+    """Send email in a background thread to avoid delaying the response"""
+    def _worker():
+        try:
+            send_email_with_pdf(pdf_data, date_str, time_str, report_hash)
+            print(f"✅ Email enviado com sucesso!")
+        except Exception as e:
+            print(f"❌ Erro ao enviar email (assíncrono): {e}")
+            import traceback
+            traceback.print_exc()
+    Thread(target=_worker, daemon=True).start()
 
 if __name__ == '__main__':
     import sys
