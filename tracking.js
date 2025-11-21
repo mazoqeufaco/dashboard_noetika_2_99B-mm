@@ -63,153 +63,148 @@ function assignLocation(ip, rawData = {}) {
 
 // Get user's IP and location (via backend to avoid CORS issues)
 async function getUserLocation() {
-    try {
-        let locationResolved = false;
-        let backendData = null;
-        try {
-            const response = await fetch('/api/get-location');
-            if (response.ok) {
-                backendData = await response.json();
-            }
-        } catch (backendError) {
-            console.warn('⚠️ Backend location lookup falhou:', backendError.message);
-        }
+    const resolvedIps = new Set();
 
-        if (backendData && backendData.ip) {
-            const backendIp = normalizeIp(backendData.ip);
-            if (!isLocalIp(backendIp)) {
-                assignLocation(backendIp, backendData);
-                locationResolved = true;
-                console.log('✅ User location tracked via backend:', trackingSession.location);
-            } else {
-                console.warn('⚠️ Backend retornou IP local/reservado, tentando serviço externo.');
-            }
+    const tryAssign = async (ipValue, payload = {}, label = '') => {
+        const normalized = normalizeIp(ipValue);
+        if (!normalized) return false;
+        resolvedIps.add(normalized);
+
+        const locationPayload = payload || {};
+        assignLocation(normalized, locationPayload);
+
+        if (!isLocalIp(normalized) || locationPayload.city || locationPayload.region || locationPayload.country) {
+            console.log(`✅ User location updated via ${label || 'unknown'}:`, trackingSession.location);
+            await updateSessionWithLocation();
+            saveTrackingData();
+            return true;
         }
-        
-        if (!locationResolved) {
+        return false;
+    };
+
+    const services = [
+        async () => {
+            try {
+                const response = await fetch('/api/get-location');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data && data.ip) {
+                        await tryAssign(data.ip, data, 'backend');
+                    }
+                }
+            } catch (error) {
+                console.warn('⚠️ Backend location lookup falhou:', error.message);
+            }
+        },
+        async () => {
             try {
                 const ipifyResponse = await fetch('https://api.ipify.org?format=json');
                 if (ipifyResponse.ok) {
                     const ipifyData = await ipifyResponse.json();
-                    const publicIp = normalizeIp(ipifyData.ip);
-                    if (publicIp && !isLocalIp(publicIp)) {
-                        let locationData = null;
+                    if (ipifyData && ipifyData.ip) {
+                        let payload = null;
                         try {
-                            const geoResponse = await fetch(`https://ipapi.co/${publicIp}/json/`);
+                            const geoResponse = await fetch(`https://ipapi.co/${ipifyData.ip}/json/`);
                             if (geoResponse.ok) {
                                 const geoData = await geoResponse.json();
                                 if (!geoData.error) {
-                                    locationData = geoData;
+                                    payload = geoData;
                                 }
                             }
                         } catch (geoError) {
                             console.warn('⚠️ Falha ao obter detalhes geográficos externos:', geoError.message);
                         }
-                        assignLocation(publicIp, locationData || {});
-                        locationResolved = true;
-                        console.log('✅ User location rastreada via serviço externo:', trackingSession.location);
+                        await tryAssign(ipifyData.ip, payload, 'ipify');
                     }
                 }
-            } catch (ipifyError) {
-                console.warn('⚠️ Serviço externo de IP falhou:', ipifyError.message);
+            } catch (error) {
+                console.warn('⚠️ Serviço ipify falhou:', error.message);
+            }
+        },
+        async () => {
+            try {
+                const resp = await fetch('https://ipapi.co/json/');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data && data.ip && !data.error) {
+                        await tryAssign(data.ip, data, 'ipapi');
+                    }
+                }
+            } catch (error) {
+                console.warn('⚠️ Serviço ipapi falhou:', error.message);
+            }
+        },
+        async () => {
+            try {
+                const resp = await fetch('https://ipinfo.io/json?token=8a8a9460b6d8ae');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data && data.ip) {
+                        await tryAssign(data.ip, data, 'ipinfo');
+                    }
+                }
+            } catch (error) {
+                console.warn('⚠️ Serviço ipinfo falhou:', error.message);
+            }
+        },
+        async () => {
+            try {
+                const resp = await fetch('https://ip-api.com/json/?fields=status,message,country,countryCode,region,regionName,city,lat,lon,timezone,query');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data.status === 'success' && data.query) {
+                        const payload = {
+                            city: data.city,
+                            region: data.regionName || data.region,
+                            country: data.country,
+                            country_code: data.countryCode,
+                            latitude: data.lat,
+                            longitude: data.lon,
+                            timezone: data.timezone
+                        };
+                        await tryAssign(data.query, payload, 'ip-api');
+                    }
+                }
+            } catch (error) {
+                console.warn('⚠️ Serviço ip-api falhou:', error.message);
+            }
+        },
+        async () => {
+            try {
+                const resp = await fetch('https://ipv6.icanhazip.com/');
+                if (resp.ok) {
+                    const text = (await resp.text()).trim();
+                    if (text) {
+                        await tryAssign(text, {}, 'icanhazip');
+                    }
+                }
+            } catch (error) {
+                console.warn('⚠️ Serviço icanhazip falhou:', error.message);
+            }
+        }
+    ];
+
+    try {
+        for (const resolver of services) {
+            await resolver();
+            // Break early if we already have a non-local IP with location
+            const currentIp = trackingSession.ip;
+            const location = trackingSession.location || {};
+            if (currentIp && (!isLocalIp(currentIp) || location.city || location.region || location.country)) {
+                return;
             }
         }
 
-        if (!locationResolved) {
-            const directEndpoints = [
-                async () => {
-                    const resp = await fetch('https://ipapi.co/json/');
-                    if (resp.ok) {
-                        const data = await resp.json();
-                        if (data.ip && !data.error) return { ip: data.ip, payload: data };
-                    }
-                    return null;
-                },
-                async () => {
-                    const resp = await fetch('https://ipinfo.io/json?token=8a8a9460b6d8ae');
-                    if (resp.ok) {
-                        const data = await resp.json();
-                        if (data.ip) return { ip: data.ip, payload: data };
-                    }
-                    return null;
-                },
-                async () => {
-                    const resp = await fetch('https://ip-api.com/json/?fields=status,message,country,countryCode,region,regionName,city,lat,lon,timezone,query');
-                    if (resp.ok) {
-                        const data = await resp.json();
-                        if (data.status === 'success' && data.query) {
-                            return {
-                                ip: data.query,
-                                payload: {
-                                    city: data.city,
-                                    region: data.regionName || data.region,
-                                    country: data.country,
-                                    country_code: data.countryCode,
-                                    latitude: data.lat,
-                                    longitude: data.lon,
-                                    timezone: data.timezone
-                                }
-                            };
-                        }
-                    }
-                    return null;
-                },
-                async () => {
-                    const resp = await fetch('https://ipv6.icanhazip.com/');
-                    if (resp.ok) {
-                        const text = (await resp.text()).trim();
-                        if (text) return { ip: text, payload: {} };
-                    }
-                    return null;
-                }
-            ];
-
-            for (const getter of directEndpoints) {
-                try {
-                    const result = await getter();
-                    if (result && result.ip) {
-                        const publicIp = normalizeIp(result.ip);
-                        if (publicIp && !isLocalIp(publicIp)) {
-                            assignLocation(publicIp, result.payload || {});
-                            locationResolved = true;
-                            console.log('✅ User location rastreada via serviço alternativo:', trackingSession.location);
-                            break;
-                        }
-                    }
-                } catch (altError) {
-                    console.warn('⚠️ Serviço alternativo de IP falhou:', altError.message);
-                }
+        // As a last pass, see if any resolved IP is usable
+        for (const candidate of resolvedIps) {
+            if (!isLocalIp(candidate)) {
+                await tryAssign(candidate, trackingSession.location || {}, 'fallback');
+                return;
             }
         }
 
-        if (locationResolved) {
-            await updateSessionWithLocation();
-            saveTrackingData();
-            return;
-        }
-        
-        // Fallback: try direct API (may fail due to CORS, but worth trying)
-        try {
-            const directResponse = await fetch('https://ipapi.co/json/');
-            if (directResponse.ok) {
-                const data = await directResponse.json();
-                if (data.ip && !data.error) {
-                    assignLocation(data.ip, data);
-                    
-                    console.log('✅ User location tracked via direct API:', trackingSession.location);
-                    await updateSessionWithLocation();
-                    saveTrackingData();
-                    return;
-                }
-            }
-        } catch (directError) {
-            console.warn('⚠️ Direct API failed (expected due to CORS):', directError.message);
-        }
-        
-        // If all fails, at least try to get IP
         console.warn('⚠️ Could not get full location data');
         trackingSession.location = { error: 'Location not available' };
-        
     } catch (error) {
         console.error('❌ Failed to get user location:', error);
         trackingSession.location = { error: 'Location not available' };
