@@ -115,6 +115,73 @@ async function getUserLocation() {
             }
         }
 
+        if (!locationResolved) {
+            const directEndpoints = [
+                async () => {
+                    const resp = await fetch('https://ipapi.co/json/');
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        if (data.ip && !data.error) return { ip: data.ip, payload: data };
+                    }
+                    return null;
+                },
+                async () => {
+                    const resp = await fetch('https://ipinfo.io/json?token=8a8a9460b6d8ae');
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        if (data.ip) return { ip: data.ip, payload: data };
+                    }
+                    return null;
+                },
+                async () => {
+                    const resp = await fetch('https://ip-api.com/json/?fields=status,message,country,countryCode,region,regionName,city,lat,lon,timezone,query');
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        if (data.status === 'success' && data.query) {
+                            return {
+                                ip: data.query,
+                                payload: {
+                                    city: data.city,
+                                    region: data.regionName || data.region,
+                                    country: data.country,
+                                    country_code: data.countryCode,
+                                    latitude: data.lat,
+                                    longitude: data.lon,
+                                    timezone: data.timezone
+                                }
+                            };
+                        }
+                    }
+                    return null;
+                },
+                async () => {
+                    const resp = await fetch('https://ipv6.icanhazip.com/');
+                    if (resp.ok) {
+                        const text = (await resp.text()).trim();
+                        if (text) return { ip: text, payload: {} };
+                    }
+                    return null;
+                }
+            ];
+
+            for (const getter of directEndpoints) {
+                try {
+                    const result = await getter();
+                    if (result && result.ip) {
+                        const publicIp = normalizeIp(result.ip);
+                        if (publicIp && !isLocalIp(publicIp)) {
+                            assignLocation(publicIp, result.payload || {});
+                            locationResolved = true;
+                            console.log('✅ User location rastreada via serviço alternativo:', trackingSession.location);
+                            break;
+                        }
+                    }
+                } catch (altError) {
+                    console.warn('⚠️ Serviço alternativo de IP falhou:', altError.message);
+                }
+            }
+        }
+
         if (locationResolved) {
             await updateSessionWithLocation();
             saveTrackingData();
