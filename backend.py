@@ -39,6 +39,7 @@ load_additional_env_from_file()
 import hashlib
 import base64
 import smtplib
+from typing import List, Dict, Any
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
@@ -103,6 +104,14 @@ def init_csv_files():
             ])
 
 init_csv_files()
+
+
+def env_truthy(name: str, default: str = 'false') -> bool:
+    """Evaluate an environment flag that should be treated as boolean."""
+    value = os.getenv(name, default)
+    if value is None:
+        return False
+    return str(value).strip().lower() in ('1', 'true', 'yes', 'on')
 
 
 def normalize_ip(ip_value: str) -> str:
@@ -221,6 +230,13 @@ def track_event():
         data = request.json
         session = data.get('session', {})
         event = data.get('event', {})
+
+        if env_truthy('LOG_IP_DEBUG'):
+            print("[track_event] Header debug → "
+                  f"X-Forwarded-For: {request.headers.get('X-Forwarded-For')}, "
+                  f"X-Real-IP: {request.headers.get('X-Real-IP')}, "
+                  f"Remote-Addr: {request.remote_addr}, "
+                  f"Payload session.ip: {session.get('ip')}")
         
         # Normalize session IP
         session_ip = normalize_ip(session.get('ip', ''))
@@ -731,85 +747,166 @@ def generate_report():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 def send_email_with_pdf(pdf_data, date_str, time_str, report_hash):
-    """Send PDF report via email"""
+    """Send PDF report via the configured email channel."""
     try:
-        # Email configuration
-        # You may need to configure these via environment variables
-        smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
-        smtp_port = int(os.getenv('SMTP_PORT', '587'))
+        email_provider = os.getenv('EMAIL_PROVIDER', 'smtp').strip().lower()
         email_from = os.getenv('EMAIL_FROM', 'noetikaai@gmail.com')
-        email_password = os.getenv('EMAIL_PASSWORD', '')
-        if email_password:
-            email_password = email_password.strip().replace(' ', '')
         email_to_str = os.getenv('EMAIL_TO', 'noetikaai@gmail.com, gabriel.silva@ufabc.edu.br')
-        
-        # Parse multiple recipients (comma or semicolon separated)
+
         email_to_list = [email.strip() for email in email_to_str.replace(';', ',').split(',') if email.strip()]
         if not email_to_list:
             email_to_list = ['noetikaai@gmail.com']
-        
-        if not email_password:
-            print("⚠️ EMAIL_PASSWORD não configurado. Email não será enviado.")
-            return
-        
-        # Create message
-        msg = MIMEMultipart()
-        msg['From'] = email_from
-        msg['To'] = ', '.join(email_to_list)  # String formatada para o header
-        msg['Subject'] = f"Relatório Tribússola gerado {date_str} {time_str}"
-        
-        # Email body
-        body = f"""
-Relatório Tribússola gerado
 
-Hash: {report_hash}
-Data: {date_str}
-Hora: {time_str}
-
-Este email contém o relatório PDF em anexo.
-"""
-        msg.attach(MIMEText(body, 'plain', 'utf-8'))
-        
-        # Attach PDF
-        attachment = MIMEBase('application', 'pdf')
-        attachment.set_payload(pdf_data)
-        encoders.encode_base64(attachment)
-        attachment.add_header(
-            'Content-Disposition',
-            f'attachment; filename=Tribussula_report_{date_str.replace("/", "")}_{time_str.replace(":", "")}.pdf'
+        subject = f"Relatório Tribússola gerado {date_str} {time_str}"
+        body_text = (
+            "Relatório Tribússola gerado\n\n"
+            f"Hash: {report_hash}\n"
+            f"Data: {date_str}\n"
+            f"Hora: {time_str}\n\n"
+            "Este email contém o relatório PDF em anexo."
         )
-        msg.attach(attachment)
-        
-        # Send email
-        print(f"📧 Tentando enviar email para: {', '.join(email_to_list)}")
-        print(f"📧 Servidor SMTP: {smtp_server}:{smtp_port}")
-        print(f"📧 De: {email_from}")
-        
-        server = smtplib.SMTP(smtp_server, smtp_port)
-        server.starttls()
-        
-        try:
-            server.login(email_from, email_password)
-            print("✅ Login SMTP realizado com sucesso")
-        except smtplib.SMTPAuthenticationError as auth_error:
-            print(f"❌ Erro de autenticação: {auth_error}")
-            print("💡 Dica: Gmail pode exigir 'Senha de App' se tiver verificação em 2 etapas")
-            print("   Obtenha em: https://myaccount.google.com/apppasswords")
-            server.quit()
-            raise
-        
-        text = msg.as_string()
-        server.sendmail(email_from, email_to_list, text)  # Lista de destinatários
-        server.quit()
-        
-        print(f"✅ Email enviado com sucesso para: {', '.join(email_to_list)}")
-    
+
+        if email_provider == 'resend':
+            send_email_via_resend(
+                pdf_data=pdf_data,
+                email_from=email_from,
+                email_to_list=email_to_list,
+                subject=subject,
+                body_text=body_text,
+                date_str=date_str,
+                time_str=time_str
+            )
+        else:
+            smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+            smtp_port = int(os.getenv('SMTP_PORT', '587'))
+            email_password = os.getenv('EMAIL_PASSWORD', '')
+            if email_password:
+                email_password = email_password.strip().replace(' ', '')
+
+            send_email_via_smtp(
+                pdf_data=pdf_data,
+                email_from=email_from,
+                email_to_list=email_to_list,
+                email_password=email_password,
+                smtp_server=smtp_server,
+                smtp_port=smtp_port,
+                subject=subject,
+                body_text=body_text,
+                date_str=date_str,
+                time_str=time_str
+            )
+
     except Exception as e:
         print(f"❌ Erro ao enviar email: {e}")
         print(f"   Tipo de erro: {type(e).__name__}")
         import traceback
         traceback.print_exc()
         raise
+
+
+def send_email_via_smtp(
+    pdf_data: bytes,
+    email_from: str,
+    email_to_list: List[str],
+    email_password: str,
+    smtp_server: str,
+    smtp_port: int,
+    subject: str,
+    body_text: str,
+    date_str: str,
+    time_str: str
+) -> None:
+    """Send email using traditional SMTP with TLS."""
+    if not email_password:
+        print("⚠️ EMAIL_PASSWORD não configurado. Email não será enviado via SMTP.")
+        return
+
+    msg = MIMEMultipart()
+    msg['From'] = email_from
+    msg['To'] = ', '.join(email_to_list)
+    msg['Subject'] = subject
+
+    msg.attach(MIMEText(body_text, 'plain', 'utf-8'))
+
+    attachment = MIMEBase('application', 'pdf')
+    attachment.set_payload(pdf_data)
+    encoders.encode_base64(attachment)
+    attachment.add_header(
+        'Content-Disposition',
+        f'attachment; filename=Tribussula_report_{date_str.replace('/', '')}_{time_str.replace(':', '')}.pdf'
+    )
+    msg.attach(attachment)
+
+    print(f"📧 [SMTP] Enviando email para: {', '.join(email_to_list)}")
+    print(f"📧 [SMTP] Servidor: {smtp_server}:{smtp_port}")
+    print(f"📧 [SMTP] Remetente: {email_from}")
+
+    server = smtplib.SMTP(smtp_server, smtp_port)
+    server.starttls()
+
+    try:
+        server.login(email_from, email_password)
+        print("✅ [SMTP] Login realizado com sucesso")
+    except smtplib.SMTPAuthenticationError as auth_error:
+        print(f"❌ [SMTP] Erro de autenticação: {auth_error}")
+        print("💡 Dica: Gmail pode exigir 'Senha de App' se tiver verificação em 2 etapas")
+        print("   Obtenha em: https://myaccount.google.com/apppasswords")
+        server.quit()
+        raise
+
+    text = msg.as_string()
+    server.sendmail(email_from, email_to_list, text)
+    server.quit()
+
+    print(f"✅ [SMTP] Email enviado com sucesso para: {', '.join(email_to_list)}")
+
+
+def send_email_via_resend(
+    pdf_data: bytes,
+    email_from: str,
+    email_to_list: List[str],
+    subject: str,
+    body_text: str,
+    date_str: str,
+    time_str: str
+) -> None:
+    """Send email using Resend's HTTPS API (production-friendly in restricted networks)."""
+    api_key = os.getenv('RESEND_API_KEY', '').strip()
+    if not api_key:
+        print("⚠️ RESEND_API_KEY não configurado. Email não será enviado via Resend.")
+        return
+
+    resend_endpoint = os.getenv('RESEND_API_URL', 'https://api.resend.com/emails').strip()
+    attachment_b64 = base64.b64encode(pdf_data).decode('utf-8')
+
+    body_html = '<br>'.join(body_text.strip().splitlines())
+    payload: Dict[str, Any] = {
+        "from": os.getenv('RESEND_FROM_EMAIL', email_from),
+        "to": email_to_list,
+        "subject": subject,
+        "text": body_text,
+        "html": body_html,
+        "attachments": [
+            {
+                "filename": f"Tribussula_report_{date_str.replace('/', '')}_{time_str.replace(':', '')}.pdf",
+                "content": attachment_b64
+            }
+        ]
+    }
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
+    print(f"📧 [Resend] Enviando email para: {', '.join(email_to_list)} via {resend_endpoint}")
+
+    response = requests.post(resend_endpoint, json=payload, headers=headers, timeout=30)
+    if response.status_code >= 400:
+        print(f"❌ [Resend] Falha ao enviar email: {response.status_code} - {response.text}")
+        response.raise_for_status()
+
+    print(f"✅ [Resend] Email enviado com sucesso para: {', '.join(email_to_list)}")
 
 def send_email_with_pdf_async(pdf_data, date_str, time_str, report_hash):
     """Send email in a background thread to avoid delaying the response"""
